@@ -1,0 +1,214 @@
+name: Auto Blog Profit
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Action to run
+        required: true
+        default: generate
+        type: choice
+        options:
+          - generate
+          - upload_top_draft
+          - upload_draft_keyword
+      keyword:
+        description: Keyword for generate/upload_draft_keyword
+        required: false
+        default: AI 자동화 툴 추천
+        type: string
+      schedule_at:
+        description: Optional publish schedule time, e.g. 2026-03-26T09:00
+        required: false
+        default: ""
+        type: string
+      debug_generation:
+        description: Print generation fallback/debug reason
+        required: false
+        default: false
+        type: boolean
+      skip_quality_check:
+        description: Skip quality gate
+        required: false
+        default: false
+        type: boolean
+      skip_duplicate_check:
+        description: Skip duplicate gate
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  run-auto-blog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_NAME: Auto_blog_profit
+      BLOG_PLATFORM: blogger
+      BLOG_TIMEZONE: Asia/Seoul
+      PUBLISH_SCHEDULE: 09:00
+      PRIMARY_NICHE: ai_productivity_tools
+      TARGET_LANGUAGE: ko
+      TARGET_COUNTRY: KR
+      KEYWORD_SEED_TOPICS: chatgpt,gemini,ai productivity,ai workflow,ai tools
+      KEYWORD_FETCH_LIMIT: 20
+      KEYWORD_SCORE_MIN: 70
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      ENABLE_SECOND_PASS_REWRITE: ${{ secrets.ENABLE_SECOND_PASS_REWRITE || 'true' }}
+      OPENAI_TIMEOUT_SECONDS: ${{ secrets.OPENAI_TIMEOUT_SECONDS || '120' }}
+      QUALITY_MIN_SCORE: ${{ secrets.QUALITY_MIN_SCORE || '70' }}
+      RUN_LOG_PATH: logs/runs.jsonl
+      RECENT_POST_CHECK_LIMIT: ${{ secrets.RECENT_POST_CHECK_LIMIT || '20' }}
+      ENABLE_INLINE_IMAGES: "true"
+      MAX_SECTION_CARDS: ${{ secrets.MAX_SECTION_CARDS || '3' }}
+      IMAGE_OUTPUT_DIR: public/generated-images
+      PUBLIC_IMAGE_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/generated-images
+      BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      ENABLE_COUPANG_PARTNERS: ${{ secrets.ENABLE_COUPANG_PARTNERS || 'false' }}
+      COUPANG_PARTNERS_ID: ${{ secrets.COUPANG_PARTNERS_ID }}
+      ENABLE_HUMAN_REVIEW: ${{ secrets.ENABLE_HUMAN_REVIEW || 'true' }}
+      MAX_POSTS_PER_DAY: ${{ secrets.MAX_POSTS_PER_DAY || '1' }}
+      BLOCK_SENSITIVE_TOPICS: ${{ secrets.BLOCK_SENSITIVE_TOPICS || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare Env File
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          PROJECT_NAME=${PROJECT_NAME}
+          BLOG_PLATFORM=${BLOG_PLATFORM}
+          BLOG_TIMEZONE=${BLOG_TIMEZONE}
+          PUBLISH_SCHEDULE=${PUBLISH_SCHEDULE}
+          PRIMARY_NICHE=${PRIMARY_NICHE}
+          TARGET_LANGUAGE=${TARGET_LANGUAGE}
+          TARGET_COUNTRY=${TARGET_COUNTRY}
+          KEYWORD_SEED_TOPICS=${KEYWORD_SEED_TOPICS}
+          KEYWORD_FETCH_LIMIT=${KEYWORD_FETCH_LIMIT}
+          KEYWORD_SCORE_MIN=${KEYWORD_SCORE_MIN}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          OPENAI_MODEL=${OPENAI_MODEL}
+          ENABLE_SECOND_PASS_REWRITE=${ENABLE_SECOND_PASS_REWRITE}
+          OPENAI_TIMEOUT_SECONDS=${OPENAI_TIMEOUT_SECONDS}
+          QUALITY_MIN_SCORE=${QUALITY_MIN_SCORE}
+          RUN_LOG_PATH=${RUN_LOG_PATH}
+          RECENT_POST_CHECK_LIMIT=${RECENT_POST_CHECK_LIMIT}
+          ENABLE_INLINE_IMAGES=${ENABLE_INLINE_IMAGES}
+          MAX_SECTION_CARDS=${MAX_SECTION_CARDS}
+          IMAGE_OUTPUT_DIR=${IMAGE_OUTPUT_DIR}
+          PUBLIC_IMAGE_BASE_URL=${PUBLIC_IMAGE_BASE_URL}
+          BLOGGER_BLOG_ID=${BLOGGER_BLOG_ID}
+          GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+          GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+          GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN}
+          ENABLE_COUPANG_PARTNERS=${ENABLE_COUPANG_PARTNERS}
+          COUPANG_PARTNERS_ID=${COUPANG_PARTNERS_ID}
+          ENABLE_HUMAN_REVIEW=${ENABLE_HUMAN_REVIEW}
+          MAX_POSTS_PER_DAY=${MAX_POSTS_PER_DAY}
+          BLOCK_SENSITIVE_TOPICS=${BLOCK_SENSITIVE_TOPICS}
+          EOF
+
+      - name: Prepare Public Site
+        shell: bash
+        run: |
+          mkdir -p public/generated-images
+          touch public/.nojekyll
+          cat > public/index.html <<EOF
+          <!doctype html>
+          <html lang="ko">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Auto Blog Profit Assets</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; }
+              code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+            </style>
+          </head>
+          <body>
+            <h1>Auto Blog Profit Assets</h1>
+            <p>Generated image files are published under <code>/generated-images/</code>.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Run Workflow Command
+        shell: bash
+        run: |
+          set -euo pipefail
+          CMD=(python main.py --env-file .env)
+
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            CMD+=(--upload-top-draft)
+          else
+            case "${{ inputs.action }}" in
+              generate)
+                CMD+=(--generate-keyword "${{ inputs.keyword }}")
+                ;;
+              upload_draft_keyword)
+                CMD+=(--upload-draft-keyword "${{ inputs.keyword }}")
+                ;;
+              upload_top_draft)
+                CMD+=(--upload-top-draft)
+                ;;
+            esac
+
+            if [[ "${{ inputs.schedule_at }}" != "" ]]; then
+              CMD+=(--schedule-at "${{ inputs.schedule_at }}")
+            fi
+
+            if [[ "${{ inputs.debug_generation }}" == "true" ]]; then
+              CMD+=(--debug-generation)
+            fi
+
+            if [[ "${{ inputs.skip_quality_check }}" == "true" ]]; then
+              CMD+=(--skip-quality-check)
+            fi
+
+            if [[ "${{ inputs.skip_duplicate_check }}" == "true" ]]; then
+              CMD+=(--skip-duplicate-check)
+            fi
+          fi
+
+          printf 'Running command: %q ' "${CMD[@]}"
+          printf '\n'
+          "${CMD[@]}"
+
+      - name: Upload Pages Artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+
+      - name: Deploy to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Upload Logs Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-blog-logs
+          path: logs/
+          if-no-files-found: ignore
