@@ -12,6 +12,8 @@ on:
           - generate
           - upload_top_draft
           - upload_draft_keyword
+          - publish_top
+          - publish_keyword
       keyword:
         description: Keyword for generate/upload_draft_keyword
         required: false
@@ -159,7 +161,7 @@ jobs:
           CMD=(python main.py --env-file .env)
 
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            CMD+=(--upload-top-draft)
+            CMD+=(--publish-top)
           else
             case "${{ inputs.action }}" in
               generate)
@@ -170,6 +172,12 @@ jobs:
                 ;;
               upload_top_draft)
                 CMD+=(--upload-top-draft)
+                ;;
+              publish_keyword)
+                CMD+=(--publish-keyword "${{ inputs.keyword }}")
+                ;;
+              publish_top)
+                CMD+=(--publish-top)
                 ;;
             esac
 

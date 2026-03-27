@@ -61,6 +61,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upload the top-ranked keyword as a Blogger draft.",
     )
     parser.add_argument(
+        "--publish-keyword",
+        default=None,
+        help="Publish the given keyword to Blogger immediately after creating the post.",
+    )
+    parser.add_argument(
+        "--publish-top",
+        action="store_true",
+        help="Publish the top-ranked keyword to Blogger immediately.",
+    )
+    parser.add_argument(
         "--list-blogs",
         action="store_true",
         help="List Blogger blogs available to the authenticated account.",
@@ -160,8 +170,8 @@ def main() -> int:
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
 
-    if args.upload_draft_keyword or args.upload_top_draft:
-        keyword = args.upload_draft_keyword
+    if args.upload_draft_keyword or args.upload_top_draft or args.publish_keyword or args.publish_top:
+        keyword = args.upload_draft_keyword or args.publish_keyword
         if not keyword:
             if not ranked_keywords:
                 print("No ranked keywords available to upload.")
@@ -258,6 +268,10 @@ def main() -> int:
                     publish_date=scheduled_for,
                 )
                 event_name = "schedule_succeeded"
+            elif args.publish_keyword or args.publish_top:
+                result = publisher.publish_post(draft_result.post_id)
+                scheduled_for = None
+                event_name = "publish_succeeded"
             else:
                 result = draft_result
                 scheduled_for = None
