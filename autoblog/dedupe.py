@@ -70,6 +70,10 @@ def evaluate_duplicate_risk(
     )
 
 
+def read_logged_titles(log_path: Path) -> list[str]:
+    return _read_logged_titles(log_path)
+
+
 def _read_logged_titles(log_path: Path) -> list[str]:
     if not log_path.exists():
         return []

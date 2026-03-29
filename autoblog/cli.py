@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from autoblog.config import AppConfig, load_config
 from autoblog.content.generator import generate_post_for_keyword
-from autoblog.dedupe import evaluate_duplicate_risk
+from autoblog.dedupe import evaluate_duplicate_risk, read_logged_titles
 from autoblog.logging_utils import append_jsonl_log
 from autoblog.pipeline import KeywordPipeline
 from autoblog.publishers.blogger import BloggerPublisher, BloggerPublisherError, build_draft_payload
@@ -117,6 +117,40 @@ def parse_schedule_at(raw: str, timezone_name: str) -> datetime:
     return parsed
 
 
+def select_keyword_for_top_action(
+    config: AppConfig,
+    ranked_keywords: list[dict[str, object]],
+    log_path: Path,
+    skip_duplicate_check: bool,
+) -> tuple[str | None, list[str], str]:
+    recent_titles: list[str] = []
+    duplicate_error = ""
+
+    try:
+        recent_titles = BloggerPublisher(config).list_recent_post_titles(
+            max_results=config.recent_post_check_limit
+        )
+    except BloggerPublisherError as exc:
+        duplicate_error = str(exc)
+
+    recent_titles.extend(read_logged_titles(log_path)[-config.recent_post_check_limit :])
+    skipped_keywords: list[str] = []
+
+    for item in ranked_keywords:
+        keyword = str(item["keyword"])
+        if skip_duplicate_check:
+            return keyword, skipped_keywords, duplicate_error
+
+        post = generate_post_for_keyword(config, keyword)
+        duplicate = evaluate_duplicate_risk(post.title, log_path, recent_titles)
+        if duplicate.blocked:
+            skipped_keywords.append(keyword)
+            continue
+        return keyword, skipped_keywords, duplicate_error
+
+    return None, skipped_keywords, duplicate_error
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -176,18 +210,40 @@ def main() -> int:
             if not ranked_keywords:
                 print("No ranked keywords available to upload.")
                 return 1
-            keyword = str(ranked_keywords[0]["keyword"])
+            keyword, skipped_keywords, selection_duplicate_error = select_keyword_for_top_action(
+                config=config,
+                ranked_keywords=ranked_keywords,
+                log_path=log_path,
+                skip_duplicate_check=args.skip_duplicate_check,
+            )
+            if not keyword:
+                print(
+                    json.dumps(
+                        {
+                            "blocked": True,
+                            "reason": "no_non_duplicate_keyword_available",
+                            "skipped_keywords": skipped_keywords,
+                            "duplicate_error": selection_duplicate_error,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 1
+        else:
+            skipped_keywords = []
+            selection_duplicate_error = ""
 
         post = generate_post_for_keyword(config, keyword)
         quality = evaluate_post_quality(post)
         recent_titles: list[str] = []
-        duplicate_error = ""
+        duplicate_error = selection_duplicate_error
         try:
             recent_titles = BloggerPublisher(config).list_recent_post_titles(
                 max_results=config.recent_post_check_limit
             )
         except BloggerPublisherError as exc:
-            duplicate_error = str(exc)
+            duplicate_error = str(exc) if not duplicate_error else f"{duplicate_error} | {exc}"
         duplicate = evaluate_duplicate_risk(post.title, log_path, recent_titles)
         payload = build_draft_payload(
             title=post.title,
@@ -248,6 +304,7 @@ def main() -> int:
                         "generation_mode": post.generation_mode,
                         "quality": quality.as_dict(),
                         "duplicate": duplicate.as_dict(),
+                        "skipped_keywords": skipped_keywords,
                         "duplicate_error": duplicate_error,
                         "debug_reason": post.debug_reason if args.debug_generation else "",
                     },
@@ -300,16 +357,17 @@ def main() -> int:
                 "title": result.title,
                 "post_id": result.post_id,
                 "url": result.url,
-                "status": result.status,
-                "published": result.published,
-                "scheduled_for": scheduled_for.isoformat() if args.schedule_at else "",
-                "generation_mode": post.generation_mode,
-                "quality": quality.as_dict(),
-                "duplicate": duplicate.as_dict(),
-                "duplicate_error": duplicate_error,
-                "debug_reason": post.debug_reason,
-            },
-        )
+                    "status": result.status,
+                    "published": result.published,
+                    "scheduled_for": scheduled_for.isoformat() if args.schedule_at else "",
+                    "generation_mode": post.generation_mode,
+                    "quality": quality.as_dict(),
+                    "duplicate": duplicate.as_dict(),
+                    "skipped_keywords": skipped_keywords,
+                    "duplicate_error": duplicate_error,
+                    "debug_reason": post.debug_reason,
+                },
+            )
 
         print(
             json.dumps(
@@ -323,6 +381,7 @@ def main() -> int:
                     "generation_mode": post.generation_mode,
                     "quality": quality.as_dict(),
                     "duplicate": duplicate.as_dict(),
+                    "skipped_keywords": skipped_keywords,
                     "duplicate_error": duplicate_error,
                     "debug_reason": post.debug_reason if args.debug_generation else "",
                 },
