@@ -63,7 +63,7 @@ jobs:
       KEYWORD_FETCH_LIMIT: 20
       KEYWORD_SCORE_MIN: 70
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL || 'gpt-5.2' }}
       ENABLE_SECOND_PASS_REWRITE: ${{ secrets.ENABLE_SECOND_PASS_REWRITE || 'true' }}
       OPENAI_TIMEOUT_SECONDS: ${{ secrets.OPENAI_TIMEOUT_SECONDS || '120' }}
       QUALITY_MIN_SCORE: ${{ secrets.QUALITY_MIN_SCORE || '70' }}

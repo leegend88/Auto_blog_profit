@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 from urllib import request
 from urllib.error import HTTPError, URLError
@@ -11,6 +12,9 @@ from autoblog.content.templates import build_draft_html, build_meta_description
 
 class OpenAIContentError(RuntimeError):
     """Raised when OpenAI content generation fails."""
+
+
+HEADING_RE = re.compile(r"<h2[^>]*>(.*?)</h2>", re.IGNORECASE | re.DOTALL)
 
 
 class OpenAIContentClient:
@@ -26,9 +30,9 @@ class OpenAIContentClient:
         "인생을 바꾸는",
     )
     TITLE_PATTERNS = (
-        "{keyword}, 막상 써보면 어디까지 편한지 정리",
         "{keyword} 추천 전에 먼저 볼 기준",
-        "{keyword} 활용법: 이런 업무에는 잘 맞고 이런 경우엔 애매합니다",
+        "{keyword} 실제 활용 정리",
+        "{keyword} 어디까지 자동화할 수 있는지 정리",
     )
 
     def __init__(self, config: AppConfig, timeout_seconds: int | None = None) -> None:
@@ -52,7 +56,7 @@ class OpenAIContentClient:
         return post
 
     def _build_generation_payload(self, keyword: str) -> dict[str, object]:
-        model = self.config.openai_model or "gpt-5-mini"
+        model = self.config.openai_model or "gpt-5.2"
         title_patterns = " / ".join(
             pattern.format(keyword=keyword) for pattern in self.TITLE_PATTERNS
         )
@@ -62,34 +66,26 @@ class OpenAIContentClient:
             "The article must be useful, grounded, natural, and suitable for AdSense review. "
             "Do not include markdown fences. Use HTML in content_html with h2, h3, p, ul, li tags. "
             "Target Korean readers and write natural Korean that sounds like a practical blogger, not a brochure. "
-            "Avoid medical, legal, or financial advice. Avoid unsupported promises and avoid made-up claims. "
+            "Avoid unsupported promises and avoid made-up claims. "
             "Use specific situations, tradeoffs, limitations, and realistic caveats. "
-            "Do not sound overly polished, overly symmetrical, or repetitive. "
-            "Vary paragraph length naturally and keep some sentences plain rather than theatrical. "
-            "The writing should feel like a careful person organizing thoughts after looking into the topic, "
-            "not like a brand campaign or a generic AI summary."
+            "Keep the article around 2200 to 3200 Korean characters in plain text, not a long essay. "
+            "Do not sound overly polished, overly symmetrical, or repetitive."
         )
         user_prompt = (
-            f"Write a detailed Korean Blogger article for the keyword '{keyword}'. "
-            "Requirements: include a short intro, at least 4 body sections, practical examples, "
-            "a short FAQ section with exactly 3 questions, and a closing summary limited to 2 paragraphs. "
+            f"Write a Korean Blogger article for the keyword '{keyword}'. "
+            "Requirements: include a short intro, 4 to 5 body sections, practical examples, "
+            "a FAQ section with exactly 3 questions, and a closing summary limited to 2 short paragraphs. "
             f"Use one of these title patterns with natural variation: {title_patterns}. "
+            "Title must feel natural in Korean, ideally 18 to 34 characters, and should not use an awkward comma break. "
+            "Headings must also feel natural in Korean. Avoid headings like '키워드가 필요한 이유' or repetitive keyword stuffing. "
+            "Prefer simple headings such as '먼저 볼 기준', '어디서 편한지', '장점과 한계'. "
             "Include one section for who should use it and one section for who may not need it. "
-            "For each important tool or method, include when it works well and when it does not. "
             "Include at least 2 concrete everyday use cases such as meeting notes, email drafting, research summary, translation, or planning. "
             "Include at least one paragraph that begins with a cautious framing such as '다만', '반대로', or '굳이'. "
-            "Include at least one specific observation that sounds like a person organizing a workflow, "
-            "for example comparing a meeting-heavy day versus a translation-heavy day. "
             "Do not overuse bullet points. Mix short and medium-length paragraphs. "
-            "Do not use hype phrases, motivational fluff, or repetitive transition phrases. "
-            "Do not pretend to have personal real-world usage, but you may say '예를 들면', '실무에서는', or '보통은'. "
-            "Avoid closing every section too neatly. It is okay for some paragraphs to end with a practical caution instead of a polished takeaway. "
-            "Avoid textbook phrasing like '지금부터 알아보겠습니다', '정리해 보겠습니다', and repeated '도움이 됩니다'. "
-            "If the keyword implies comparison or recommendation, explain selection criteria clearly. "
-            "Title should be useful and search-friendly, not clickbait. "
-            "Labels should be short and relevant. "
-            "Meta description should be under 160 Korean characters. "
-            "Your response must be a json object."
+            "Avoid hype phrases, generic transitions, and AI-summary tone. "
+            "Do not pretend to have personal experience. "
+            "Meta description should be under 150 Korean characters."
         )
         return {
             "model": model,
@@ -105,31 +101,24 @@ class OpenAIContentClient:
             },
         }
 
-    def _build_rewrite_payload(
-        self, keyword: str, post: dict[str, object]
-    ) -> dict[str, object]:
-        model = self.config.openai_model or "gpt-5-mini"
+    def _build_rewrite_payload(self, keyword: str, post: dict[str, object]) -> dict[str, object]:
+        model = self.config.openai_model or "gpt-5.2"
         instructions = (
             "You are rewriting a Korean Blogger article draft about AI and productivity tools. "
             "Return only valid json with keys title, meta_description, content_html, labels. "
-            "Preserve the meaning, search intent, and core structure, but make the prose sound more natural. "
+            "Preserve the meaning and structure, but make the prose sound more natural. "
             "Reduce repetitive sentence openings and stiff transitions. "
             "Keep practical examples, limitations, and tradeoffs. "
             "Do not add fake experiences, invented benchmarks, or unsupported claims. "
-            "Remove phrases that sound like a school essay, brochure, or AI summary. "
-            "Keep at least one cautious paragraph and at least one 'not for everyone' angle. "
-            "Keep HTML valid and do not include markdown fences. "
-            "Your response must be a json object."
+            "Fix awkward titles or headings so they read naturally in Korean. "
+            "Keep the full plain text roughly under 3200 Korean characters."
         )
         draft_json = json.dumps(post, ensure_ascii=False)
         user_prompt = (
             f"Rewrite the draft for the keyword '{keyword}'. "
             "Make it sound like a careful human blogger who explains clearly without overperforming. "
-            "Keep the helpful sections, but vary paragraph rhythm and wording. "
-            "Avoid generic wrap-up sentences and brochure-like phrasing. "
-            "Replace neat, summary-like sentences with more grounded wording when possible. "
-            "If a paragraph feels too smooth or too perfect, make it a little more restrained and practical. "
-            "Preserve concrete examples, selection criteria, FAQ count, and the 'who should use it / who may not need it' structure. "
+            "If the title sounds awkward, rewrite it into a simpler Korean search-friendly title. "
+            "If any heading sounds stiff or repetitive, simplify it. "
             f"Current draft JSON: {draft_json}"
         )
         return {
@@ -258,10 +247,68 @@ class OpenAIContentClient:
                 if fallback and isinstance(fallback.get("labels"), list)
                 else list(self.DEFAULT_LABELS)
             )
-        parsed["title"] = self._cleanup_text(str(parsed["title"]))
+
+        parsed["title"] = self._cleanup_title(str(parsed["title"]), keyword)
         parsed["meta_description"] = self._cleanup_text(str(parsed["meta_description"]))
-        parsed["content_html"] = self._cleanup_text(str(parsed["content_html"]))
+        parsed["content_html"] = self._cleanup_html(str(parsed["content_html"]), keyword)
         return parsed
+
+    def _cleanup_title(self, value: str, keyword: str) -> str:
+        cleaned = self._cleanup_text(value)
+        cleaned = re.sub(r"\s*,\s*", ": ", cleaned, count=1)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" .:-")
+        if len(cleaned) > 34:
+            cleaned = cleaned[:34].rstrip() + "…"
+        if cleaned == keyword:
+            cleaned = f"{keyword} 실제 활용 정리"
+        return cleaned
+
+    def _cleanup_html(self, value: str, keyword: str) -> str:
+        cleaned = self._cleanup_text(value)
+        cleaned = self._cleanup_headings(cleaned, keyword)
+        plain_text = re.sub(r"<[^>]+>", " ", cleaned)
+        plain_text = re.sub(r"\s+", " ", plain_text).strip()
+        if len(plain_text) > 3200:
+            cleaned = self._trim_html_paragraphs(cleaned, 3200)
+        return cleaned
+
+    def _cleanup_headings(self, html_value: str, keyword: str) -> str:
+        def replacer(match: re.Match[str]) -> str:
+            heading = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+            heading = heading.replace(keyword, "").strip(" :-|")
+            heading = re.sub(r"^(이 |그 )", "", heading).strip()
+            replacements = {
+                "가 필요한 이유": "먼저 볼 기준",
+                "필요한 이유": "먼저 볼 기준",
+                "핵심 기능": "어디서 편한지",
+                "실제 활용 예시": "실제 활용 예시",
+                "장단점": "장점과 한계",
+                "추천 대상": "잘 맞는 사람",
+                "faq": "자주 묻는 질문",
+            }
+            normalized = heading.lower()
+            if normalized in replacements:
+                heading = replacements[normalized]
+            elif heading in replacements:
+                heading = replacements[heading]
+            if not heading:
+                heading = "먼저 볼 기준"
+            return f"<h2>{heading}</h2>"
+
+        return HEADING_RE.sub(replacer, html_value)
+
+    def _trim_html_paragraphs(self, html_value: str, max_chars: int) -> str:
+        parts = re.split(r"(<p>.*?</p>)", html_value, flags=re.IGNORECASE | re.DOTALL)
+        kept: list[str] = []
+        current_len = 0
+        for part in parts:
+            plain = re.sub(r"<[^>]+>", " ", part)
+            plain = re.sub(r"\s+", " ", plain).strip()
+            if current_len + len(plain) > max_chars and part.lower().startswith("<p>"):
+                continue
+            kept.append(part)
+            current_len += len(plain)
+        return "".join(kept)
 
     def _cleanup_text(self, value: str) -> str:
         cleaned = value
@@ -279,5 +326,4 @@ class OpenAIContentClient:
         for source, target in replacements.items():
             cleaned = cleaned.replace(source, target)
 
-        cleaned = cleaned.replace("  ", " ").strip()
-        return cleaned
+        return re.sub(r"\s{2,}", " ", cleaned).strip()

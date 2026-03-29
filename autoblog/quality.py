@@ -71,6 +71,11 @@ AI_SLANG_PATTERNS = (
     "소개하겠습니다",
     "핵심 포인트를 확인해보세요",
 )
+AWKWARD_TITLE_PATTERNS = (
+    ",",
+    "골라 보기",
+    "실제로 편해지는 지점",
+)
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,7 @@ def evaluate_post_quality(post: GeneratedPost) -> QualityCheckResult:
 
     plain_text = _plain_text(post.content_html)
     word_count = len([token for token in plain_text.split(" ") if token.strip()])
+    char_count = len(plain_text)
     paragraph_count = post.content_html.count("<p>")
     heading_count = len(HEADING_RE.findall(post.content_html))
     list_item_count = len(LIST_ITEM_RE.findall(post.content_html))
@@ -127,9 +133,17 @@ def evaluate_post_quality(post: GeneratedPost) -> QualityCheckResult:
         issues.append("title_too_short")
         score -= 10
 
+    if any(pattern in post.title for pattern in AWKWARD_TITLE_PATTERNS):
+        issues.append("awkward_title_pattern")
+        score -= 12
+
     if word_count < 350:
         issues.append("content_too_short")
         score -= 35
+
+    if char_count > 3400:
+        issues.append("content_too_long")
+        score -= 15
 
     if paragraph_count < 6:
         issues.append("too_few_paragraphs")
@@ -219,6 +233,7 @@ def evaluate_post_quality(post: GeneratedPost) -> QualityCheckResult:
             "comparison_hits": comparison_hits,
             "affiliate_phrase_hits": affiliate_phrase_hits,
             "avg_words_per_sentence": avg_words_per_sentence,
+            "char_count": char_count,
             "heading_bonus": heading_bonus,
             "list_balance_bonus": list_balance_bonus,
             "inline_image_count": inline_image_count,

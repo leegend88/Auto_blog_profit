@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-NON_WORD_RE = re.compile(r"[^\w가-힣]+", re.UNICODE)
+NON_WORD_RE = re.compile(r"[^0-9a-z가-힣]+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def _read_logged_titles(log_path: Path) -> list[str]:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if entry.get("event") != "upload_succeeded":
+        if entry.get("event") not in {"upload_succeeded", "publish_succeeded", "schedule_succeeded"}:
             continue
         title = entry.get("title")
         if isinstance(title, str) and title.strip():
